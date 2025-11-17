@@ -60,10 +60,10 @@ export default function LeaderboardTable({
               <span className="text-[#FF375F]">Hard</span>
             </th>
             <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
-              <span className="text-[#9B5CF6]">XP</span>
-            </th>
-            <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               Total
+            </th>
+              <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
+              <span className="text-[#9B5CF6]">XP</span>
             </th>
             {/* Commented out Action column - delete disabled in UI
             <th className="px-6 py-5 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">
@@ -129,13 +129,13 @@ export default function LeaderboardTable({
                 </span>
               </td>
               <td className="px-6 py-5 whitespace-nowrap text-right">
-                <span className="text-base font-semibold text-[#9B5CF6]">
-                  {user.error ? 'N/A' : user.xp}
+                <span className="text-base font-semibold text-gray-300">
+                  {user.error ? 'N/A' : user.total}
                 </span>
               </td>
               <td className="px-6 py-5 whitespace-nowrap text-right">
-                <span className="text-base font-semibold text-gray-300">
-                  {user.error ? 'N/A' : user.total}
+                <span className="text-base font-semibold text-[#9B5CF6]">
+                  {user.error ? 'N/A' : user.xp}
                 </span>
               </td>
               {/* Action removed: delete button commented out

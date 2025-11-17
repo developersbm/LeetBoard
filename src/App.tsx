@@ -1360,6 +1360,21 @@ function App() {
           </div>
         )}
       </div>
+
+      <footer className="max-w-6xl mx-auto px-4 py-6 text-center text-gray-400">
+        <p>We are all going to make it.</p>
+        <p>
+          If you want to contribute check the repository:&nbsp;
+          <a
+            href="https://github.com/developersbm/LeetBoard"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-gray-600 hover:underline"
+          >
+            LeetBoard
+          </a>
+        </p>
+      </footer>
     </div>
   );
 }
