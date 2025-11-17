@@ -87,67 +87,117 @@ function App() {
 
   // Fetch stats for a single user
   const fetchUserStats = async (username: string): Promise<UserStats> => {
-    try {
-      const response = await fetch(`https://leetcode-stats-api.herokuapp.com/${username}`);
+    const url = `https://leetcode-stats-api.herokuapp.com/${username}`;
+    const maxRetries = 2; // total attempts = 1 + maxRetries
+    let attempt = 0;
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+    while (attempt <= maxRetries) {
+      try {
+        const response = await fetch(url);
 
-      const data: LeetCodeResponse = await response.json();
+        // Retry on server errors (5xx)
+        if (!response.ok) {
+          if (response.status >= 500 && attempt < maxRetries) {
+            attempt++;
+            const backoff = 500 * Math.pow(2, attempt - 1);
+            await new Promise(r => setTimeout(r, backoff));
+            continue;
+          }
 
-      // If API indicates the user does not exist, return a specific error
-      if (data.status === 'error' && data.message && data.message.toLowerCase().includes('user does not exist')) {
+          // Try to parse body when available to get structured error message
+          const maybeJson = await response.json().catch(() => null);
+          if (maybeJson && maybeJson.status === 'error' && typeof maybeJson.message === 'string') {
+            const msg = maybeJson.message.toLowerCase();
+            if (msg.includes('user does not exist')) {
+              return {
+                username,
+                easy: 0,
+                medium: 0,
+                hard: 0,
+                total: 0,
+                rank: 0,
+                error: 'this is not a leetcode user',
+              };
+            }
+          }
+
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data: LeetCodeResponse = await response.json();
+
+        // If API indicates the user does not exist, return a specific error
+        if (data.status === 'error' && data.message && data.message.toLowerCase().includes('user does not exist')) {
+          return {
+            username,
+            easy: 0,
+            medium: 0,
+            hard: 0,
+            total: 0,
+            rank: 0,
+            error: 'this is not a leetcode user',
+          };
+        }
+
+        // Check if the request was successful
+        if (data.status !== 'success') {
+          return {
+            username,
+            easy: 0,
+            medium: 0,
+            hard: 0,
+            total: 0,
+            rank: 0,
+            error: 'User not found',
+          };
+        }
+
+        const easy = data.easySolved;
+        const medium = data.mediumSolved;
+        const hard = data.hardSolved;
+        const total = data.totalSolved;
+
         return {
           username,
-          easy: 0,
-          medium: 0,
-          hard: 0,
-          total: 0,
-          rank: 0,
-          error: 'this is not a leetcode user',
+          easy,
+          medium,
+          hard,
+          total,
+          rank: 0, // Will be assigned after sorting
+          error: null,
         };
+      } catch (error: any) {
+        // If we've exhausted retries, return a clear error for UI
+        if (attempt >= maxRetries) {
+          console.error(`Error fetching stats for ${username}:`, error);
+          return {
+            username,
+            easy: 0,
+            medium: 0,
+            hard: 0,
+            total: 0,
+            rank: 0,
+            error: error instanceof Error ? error.message : 'LeetCode API unavailable',
+          };
+        }
+
+        // otherwise, increment attempt and retry after short backoff
+        attempt++;
+        const backoff = 500 * Math.pow(2, attempt - 1);
+        await new Promise(r => setTimeout(r, backoff));
       }
-
-      // Check if the request was successful
-      if (data.status !== 'success') {
-        return {
-          username,
-          easy: 0,
-          medium: 0,
-          hard: 0,
-          total: 0,
-          rank: 0,
-          error: 'User not found',
-        };
-      }
-
-      const easy = data.easySolved;
-      const medium = data.mediumSolved;
-      const hard = data.hardSolved;
-      const total = data.totalSolved;
-
-      return {
-        username,
-        easy,
-        medium,
-        hard,
-        total,
-        rank: 0, // Will be assigned after sorting
-        error: null,
-      };
-    } catch (error) {
-      console.error(`Error fetching stats for ${username}:`, error);
-      return {
-        username,
-        easy: 0,
-        medium: 0,
-        hard: 0,
-        total: 0,
-        rank: 0,
-        error: error instanceof Error ? error.message : 'Error fetching data',
-      };
     }
+
+    // Fallback (shouldn't reach here)
+    return {
+      username,
+      easy: 0,
+      medium: 0,
+      hard: 0,
+      total: 0,
+      rank: 0,
+      error: 'Error fetching data',
+    };
   };
 
   // Load users from Firestore
