@@ -266,14 +266,14 @@ function App() {
           id: doc.id,
           ...doc.data()
         } as LeaderboardSnapshot;
-        console.log(`✅ Loaded ${period} snapshot:`, snapshotData);
+        console.log(`Loaded ${period} snapshot:`, snapshotData);
         console.log(`   Users in snapshot:`, snapshotData.users);
         return snapshotData;
       }
-      console.log(`⚠️ No ${period} snapshot found in Firestore`);
+      console.log(`No ${period} snapshot found in Firestore`);
       return null;
     } catch (error) {
-      console.error(`❌ Error loading ${period} snapshot:`, error);
+      console.error(`Error loading ${period} snapshot:`, error);
       return null;
     }
   };
