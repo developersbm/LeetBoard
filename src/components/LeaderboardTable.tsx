@@ -5,6 +5,7 @@ interface UserStats {
   username: string;
   name?: string;
   rank: number;
+  jobsApplied: number;
   easy: number;
   medium: number;
   hard: number;
@@ -45,6 +46,9 @@ export default function LeaderboardTable({
             </th>
             <th className="px-6 py-5 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
               Username
+            </th>
+              <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
+                <span className="text-blue-400">Jobs</span>
             </th>
             <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               <span className="text-[#00B8A3]">Easy</span>
@@ -103,6 +107,11 @@ export default function LeaderboardTable({
                     </div>
                   )}
                 </div>
+              </td>
+              <td className="px-6 py-5 whitespace-nowrap text-right">
+                  <span className="text-base font-semibold text-blue-400">
+                  {user.error ? 'N/A' : user.jobsApplied}
+                </span>
               </td>
               <td className="px-6 py-5 whitespace-nowrap text-right">
                 <span className="text-base font-semibold text-[#00B8A3]">

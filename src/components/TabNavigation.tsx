@@ -1,6 +1,6 @@
 interface TabNavigationProps {
-  activeTab: 'all' | 'weekly' | 'monthly';
-  onTabChange: (tab: 'all' | 'weekly' | 'monthly') => void;
+  activeTab: 'all' | 'jobs' | 'weekly' | 'monthly';
+  onTabChange: (tab: 'all' | 'jobs' | 'weekly' | 'monthly') => void;
 }
 
 export default function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
@@ -15,6 +15,16 @@ export default function TabNavigation({ activeTab, onTabChange }: TabNavigationP
         }`}
       >
         All Time
+      </button>
+      <button
+        onClick={() => onTabChange('jobs')}
+        className={`px-6 py-3 font-semibold transition-all duration-200 ${
+          activeTab === 'jobs'
+            ? 'text-blue-400 border-b-2 border-blue-400'
+            : 'text-gray-400 hover:text-gray-200'
+        }`}
+      >
+        Jobs Applied
       </button>
       <button
         onClick={() => onTabChange('weekly')}
