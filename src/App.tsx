@@ -1,13 +1,20 @@
 import { useState, useEffect } from 'react';
 import { FaTrophy, FaCode } from 'react-icons/fa';
 import { IoMdRefresh } from 'react-icons/io';
-import { MdError } from 'react-icons/md';
-
-// Hardcoded list of LeetCode usernames
-// Edit this array to add/remove friends
-const LEETCODE_USERNAMES = [
-    'sebastianbastida',
-];
+import { db } from './firebase';
+import { 
+  collection, 
+  getDocs, 
+  addDoc, 
+  deleteDoc, 
+  doc,
+  query,
+  where,
+  orderBy,
+  limit
+} from 'firebase/firestore';
+import LeaderboardTable from './components/LeaderboardTable';
+import TabNavigation from './components/TabNavigation';
 
 interface DifficultyStats {
   easy: number;
@@ -20,6 +27,23 @@ interface UserStats extends DifficultyStats {
   username: string;
   rank: number;
   error?: string | null;
+}
+
+type SnapshotPeriod = 'weekly' | 'monthly';
+
+interface SnapshotUserStats {
+  username: string;
+  easy: number;
+  medium: number;
+  hard: number;
+  total: number;
+}
+
+interface LeaderboardSnapshot {
+  id?: string;
+  period: SnapshotPeriod;
+  createdAt: string;
+  users: SnapshotUserStats[];
 }
 
 interface LeetCodeResponse {
@@ -43,7 +67,14 @@ interface LeetCodeResponse {
 function App() {
   const [userStats, setUserStats] = useState<UserStats[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'total' | 'weekly' | 'monthly'>('total');
+  const [activeTab, setActiveTab] = useState<'all' | 'weekly' | 'monthly'>('all');
+  const [usernames, setUsernames] = useState<string[]>([]);
+  const [newUsername, setNewUsername] = useState<string>('');
+  const [weeklySnapshot, setWeeklySnapshot] = useState<LeaderboardSnapshot | null>(null);
+  const [monthlySnapshot, setMonthlySnapshot] = useState<LeaderboardSnapshot | null>(null);
+  const [weeklyStats, setWeeklyStats] = useState<UserStats[]>([]);
+  const [monthlyStats, setMonthlyStats] = useState<UserStats[]>([]);
+  const [showAddUserModal, setShowAddUserModal] = useState<boolean>(false);
 
   // Fetch stats for a single user
   const fetchUserStats = async (username: string): Promise<UserStats> => {
@@ -97,29 +128,367 @@ function App() {
     }
   };
 
+  // Load users from Firestore
+  const loadUsersFromFirestore = async () => {
+    try {
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      const userList = snapshot.docs.map(doc => doc.data().username as string);
+      setUsernames(userList);
+      return userList;
+    } catch (error) {
+      console.error('Error loading users from Firestore:', error);
+      return [];
+    }
+  };
+
+  // Add user to Firestore
+  const addUser = async () => {
+    const trimmedUsername = newUsername.trim();
+    if (!trimmedUsername) return;
+    
+    // Check if user already exists
+    if (usernames.includes(trimmedUsername)) {
+      alert(`User "${trimmedUsername}" already exists!`);
+      return;
+    }
+    
+    try {
+      // First fetch the user's current stats to validate they exist on LeetCode
+      setLoading(true);
+      const userCurrentStats = await fetchUserStats(trimmedUsername);
+      
+      // Check if user exists on LeetCode
+      if (userCurrentStats.error === 'User not found') {
+        alert(`User "${trimmedUsername}" does not exist on LeetCode. Please check the username and try again.`);
+        setLoading(false);
+        return;
+      }
+      
+      await addDoc(collection(db, 'users'), {
+        username: trimmedUsername,
+        createdAt: new Date().toISOString()
+      });
+      setNewUsername('');
+      const updatedUsers = await loadUsersFromFirestore();
+      await loadAllStats(updatedUsers);
+      
+      // Add user to existing snapshots with current stats as baseline
+      await addUserToSnapshots(trimmedUsername, userCurrentStats);
+      
+      // Small delay to ensure Firestore has processed the updates
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Reload snapshots
+      const weekly = await loadLatestSnapshot('weekly');
+      const monthly = await loadLatestSnapshot('monthly');
+      
+      console.log('Loaded weekly snapshot:', weekly);
+      console.log('Loaded monthly snapshot:', monthly);
+      
+      setWeeklySnapshot(weekly);
+      setMonthlySnapshot(monthly);
+      
+      // Recalculate rankings with updated snapshots
+      await loadAllStats(updatedUsers, weekly, monthly);
+    } catch (error) {
+      console.error('Error adding user:', error);
+      alert('Failed to add user. Please try again.');
+    }
+  };
+
+  // Remove user from Firestore
+  const removeUser = async (username: string) => {
+    try {
+      const usersRef = collection(db, 'users');
+      const snapshot = await getDocs(usersRef);
+      const userDoc = snapshot.docs.find(doc => doc.data().username === username);
+      
+      if (userDoc) {
+        // Delete user from users collection
+        await deleteDoc(doc(db, 'users', userDoc.id));
+        
+        // Remove user from all snapshots
+        const snapshotsRef = collection(db, 'leaderboardSnapshots');
+        const snapshotsSnapshot = await getDocs(snapshotsRef);
+        
+        const updatePromises = snapshotsSnapshot.docs.map(async (snapshotDoc) => {
+          const data = snapshotDoc.data() as LeaderboardSnapshot;
+          
+          // Check if user exists in this snapshot
+          const userExists = data.users.some(u => u.username === username);
+          if (userExists) {
+            // Remove user from the users array
+            const updatedUsers = data.users.filter(u => u.username !== username);
+            
+            // Update the snapshot document with the filtered users
+            await deleteDoc(doc(db, 'leaderboardSnapshots', snapshotDoc.id));
+            if (updatedUsers.length > 0) {
+              // Only recreate if there are remaining users
+              await addDoc(snapshotsRef, {
+                ...data,
+                users: updatedUsers
+              });
+            }
+          }
+        });
+        
+        await Promise.all(updatePromises);
+        
+        // Reload data
+        const updatedUsers = await loadUsersFromFirestore();
+        const weekly = await loadLatestSnapshot('weekly');
+        const monthly = await loadLatestSnapshot('monthly');
+        setWeeklySnapshot(weekly);
+        setMonthlySnapshot(monthly);
+        await loadAllStats(updatedUsers, weekly, monthly);
+      }
+    } catch (error) {
+      console.error('Error removing user:', error);
+    }
+  };
+
+  // Load latest snapshot for a period
+  const loadLatestSnapshot = async (period: SnapshotPeriod): Promise<LeaderboardSnapshot | null> => {
+    try {
+      const snapshotsRef = collection(db, 'leaderboardSnapshots');
+      const q = query(
+        snapshotsRef,
+        where('period', '==', period),
+        orderBy('createdAt', 'desc'),
+        limit(1)
+      );
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        const doc = snapshot.docs[0];
+        const snapshotData = {
+          id: doc.id,
+          ...doc.data()
+        } as LeaderboardSnapshot;
+        console.log(`✅ Loaded ${period} snapshot:`, snapshotData);
+        console.log(`   Users in snapshot:`, snapshotData.users);
+        return snapshotData;
+      }
+      console.log(`⚠️ No ${period} snapshot found in Firestore`);
+      return null;
+    } catch (error) {
+      console.error(`❌ Error loading ${period} snapshot:`, error);
+      return null;
+    }
+  };
+
+  // Add user to existing snapshots
+  const addUserToSnapshots = async (username: string, userStats: UserStats) => {
+    try {
+      const snapshotsRef = collection(db, 'leaderboardSnapshots');
+      const snapshot = await getDocs(snapshotsRef);
+      
+      const newUserData = {
+        username: username,
+        easy: userStats.easy,
+        medium: userStats.medium,
+        hard: userStats.hard,
+        total: userStats.total
+      };
+      
+      // Add user to all existing snapshots
+      const updatePromises = snapshot.docs.map(async (docSnapshot) => {
+        const data = docSnapshot.data() as LeaderboardSnapshot;
+        
+        // Check if user already exists in this snapshot
+        if (!data.users.some(u => u.username === username)) {
+          const updatedUsers = [...data.users, newUserData];
+          await deleteDoc(doc(db, 'leaderboardSnapshots', docSnapshot.id));
+          await addDoc(snapshotsRef, {
+            ...data,
+            users: updatedUsers
+          });
+        }
+      });
+      
+      await Promise.all(updatePromises);
+      
+      // If no snapshots exist, create initial ones
+      if (snapshot.empty) {
+        await addDoc(snapshotsRef, {
+          period: 'weekly',
+          createdAt: new Date().toISOString(),
+          users: [newUserData]
+        });
+        await addDoc(snapshotsRef, {
+          period: 'monthly',
+          createdAt: new Date().toISOString(),
+          users: [newUserData]
+        });
+      }
+    } catch (error) {
+      console.error('Error adding user to snapshots:', error);
+    }
+  };
+
+  // Capture snapshot
+  const captureSnapshot = async (period: SnapshotPeriod) => {
+    try {
+      // Ensure we have stats to capture
+      if (userStats.length === 0) {
+        console.log(`No users to capture for ${period} snapshot`);
+        return;
+      }
+
+      // Delete old snapshot of this period
+      const snapshotsRef = collection(db, 'leaderboardSnapshots');
+      const q = query(snapshotsRef, where('period', '==', period));
+      const oldSnapshots = await getDocs(q);
+      
+      const deletePromises = oldSnapshots.docs.map(doc => 
+        deleteDoc(doc.ref)
+      );
+      await Promise.all(deletePromises);
+
+      // Create new snapshot with current stats
+      const snapshotData: Omit<LeaderboardSnapshot, 'id'> = {
+        period,
+        createdAt: new Date().toISOString(),
+        users: userStats.map(user => ({
+          username: user.username,
+          easy: user.easy,
+          medium: user.medium,
+          hard: user.hard,
+          total: user.total
+        }))
+      };
+
+      await addDoc(snapshotsRef, snapshotData);
+      
+      // Reload the snapshot
+      const newSnapshot = await loadLatestSnapshot(period);
+      if (period === 'weekly') {
+        setWeeklySnapshot(newSnapshot);
+        // Recalculate rankings with new weekly snapshot
+        await loadAllStats(undefined, newSnapshot, monthlySnapshot);
+      } else {
+        setMonthlySnapshot(newSnapshot);
+        // Recalculate rankings with new monthly snapshot
+        await loadAllStats(undefined, weeklySnapshot, newSnapshot);
+      }
+    } catch (error) {
+      console.error(`Error capturing ${period} snapshot:`, error);
+    }
+  };
+
+  // Helper: Find user in snapshot
+  const findSnapshotUser = (snapshot: LeaderboardSnapshot | null, username: string): SnapshotUserStats | null => {
+    if (!snapshot) return null;
+    return snapshot.users.find(u => u.username === username) ?? null;
+  };
+
+  // Helper: Compute progress from baseline
+  const computeProgress = (current: UserStats, baseline: SnapshotUserStats | null): UserStats => {
+    if (!baseline) {
+      // User not in snapshot yet - show as 0 progress
+      return {
+        username: current.username,
+        easy: 0,
+        medium: 0,
+        hard: 0,
+        total: 0,
+        rank: 0,
+        error: current.error
+      };
+    }
+
+    return {
+      username: current.username,
+      easy: Math.max(0, current.easy - baseline.easy),
+      medium: Math.max(0, current.medium - baseline.medium),
+      hard: Math.max(0, current.hard - baseline.hard),
+      total: Math.max(0, current.total - baseline.total),
+      rank: 0,
+      error: current.error
+    };
+  };
+
+  // Calculate delta (for table display)
+  const calculateDelta = (username: string, currentTotal: number, snapshot: LeaderboardSnapshot | null): number | null => {
+    if (!snapshot) return null;
+    const snapshotUser = findSnapshotUser(snapshot, username);
+    if (!snapshotUser) return 0; // New user shows 0 delta
+    return currentTotal - snapshotUser.total;
+  };
+
   // Load stats for all users
-  const loadAllStats = async () => {
+  const loadAllStats = async (userList?: string[], weeklySnap?: LeaderboardSnapshot | null, monthlySnap?: LeaderboardSnapshot | null) => {
     setLoading(true);
 
     try {
+      const usersToFetch = userList || usernames;
+      
+      if (usersToFetch.length === 0) {
+        setUserStats([]);
+        setWeeklyStats([]);
+        setMonthlyStats([]);
+        setLoading(false);
+        return;
+      }
+
+      // Use passed snapshots or fall back to state
+      const currentWeeklySnapshot = weeklySnap !== undefined ? weeklySnap : weeklySnapshot;
+      const currentMonthlySnapshot = monthlySnap !== undefined ? monthlySnap : monthlySnapshot;
+
+      console.log('📊 Computing stats with snapshots:', {
+        weekly: currentWeeklySnapshot ? `${currentWeeklySnapshot.users.length} users` : 'null',
+        monthly: currentMonthlySnapshot ? `${currentMonthlySnapshot.users.length} users` : 'null'
+      });
+
       // Fetch all users in parallel
-      const statsPromises = LEETCODE_USERNAMES.map((username) =>
+      const statsPromises = usersToFetch.map((username: string) =>
         fetchUserStats(username)
       );
       const stats = await Promise.all(statsPromises);
 
       // Sort by total descending
-      const sortedStats = stats.sort((a, b) => {
+      const sortedStats = stats.sort((a: UserStats, b: UserStats) => {
         return b.total - a.total;
       });
 
       // Assign ranks
-      const rankedStats = sortedStats.map((stat, index) => ({
+      const rankedStats = sortedStats.map((stat: UserStats, index: number) => ({
         ...stat,
         rank: index + 1,
       }));
 
       setUserStats(rankedStats);
+      
+      // Calculate weekly progress (NOT lifetime totals)
+      const weeklyProgress = rankedStats.map(stat => {
+        const baselineUser = findSnapshotUser(currentWeeklySnapshot, stat.username);
+        const progress = computeProgress(stat, baselineUser);
+        console.log(`📈 Weekly progress for ${stat.username}:`, {
+          current: { easy: stat.easy, medium: stat.medium, hard: stat.hard, total: stat.total },
+          baseline: baselineUser,
+          progress: { easy: progress.easy, medium: progress.medium, hard: progress.hard, total: progress.total }
+        });
+        return progress;
+      });
+      
+      // Sort by total progress (problems solved since baseline)
+      const weeklyRanked = weeklyProgress
+        .sort((a, b) => b.total - a.total)
+        .map((stat, index) => ({ ...stat, rank: index + 1 }));
+      setWeeklyStats(weeklyRanked);
+      
+      // Calculate monthly progress (NOT lifetime totals)
+      const monthlyProgress = rankedStats.map(stat => {
+        const baselineUser = findSnapshotUser(currentMonthlySnapshot, stat.username);
+        return computeProgress(stat, baselineUser);
+      });
+      
+      // Sort by total progress (problems solved since baseline)
+      const monthlyRanked = monthlyProgress
+        .sort((a, b) => b.total - a.total)
+        .map((stat, index) => ({ ...stat, rank: index + 1 }));
+      setMonthlyStats(monthlyRanked);
     } catch (error) {
       console.error('Error loading stats:', error);
     } finally {
@@ -127,9 +496,66 @@ function App() {
     }
   };
 
-  // Load stats on mount
+  // Check if snapshot needs reset
+  const shouldResetWeeklySnapshot = (snapshot: LeaderboardSnapshot | null): boolean => {
+    if (!snapshot) return false;
+    
+    const snapshotDate = new Date(snapshot.createdAt);
+    const now = new Date();
+    
+    // Check if current date is Sunday (0) and snapshot is from a previous week
+    const isSunday = now.getDay() === 0;
+    const isNewWeek = now.getTime() - snapshotDate.getTime() > 7 * 24 * 60 * 60 * 1000;
+    
+    return isSunday && isNewWeek;
+  };
+
+  const shouldResetMonthlySnapshot = (snapshot: LeaderboardSnapshot | null): boolean => {
+    if (!snapshot) return false;
+    
+    const snapshotDate = new Date(snapshot.createdAt);
+    const now = new Date();
+    
+    // Check if current date is 1st of the month and snapshot is from a previous month
+    const isFirstOfMonth = now.getDate() === 1;
+    const isDifferentMonth = 
+      snapshotDate.getMonth() !== now.getMonth() || 
+      snapshotDate.getFullYear() !== now.getFullYear();
+    
+    return isFirstOfMonth && isDifferentMonth;
+  };
+
+  // Load users and snapshots on mount
   useEffect(() => {
-    loadAllStats();
+    const initializeData = async () => {
+      const users = await loadUsersFromFirestore();
+      
+      // Load snapshots
+      const weekly = await loadLatestSnapshot('weekly');
+      const monthly = await loadLatestSnapshot('monthly');
+      
+      console.log('🔄 Setting snapshot states...');
+      setWeeklySnapshot(weekly);
+      setMonthlySnapshot(monthly);
+      
+      // Recalculate stats with loaded snapshots
+      await loadAllStats(users, weekly, monthly);
+      
+      // Check if snapshots need to be reset
+      if (users.length > 0) {
+        if (shouldResetWeeklySnapshot(weekly)) {
+          console.log('Resetting weekly snapshot (Sunday reset)');
+          setTimeout(() => captureSnapshot('weekly'), 1000);
+        }
+        
+        if (shouldResetMonthlySnapshot(monthly)) {
+          console.log('Resetting monthly snapshot (1st of month reset)');
+          setTimeout(() => captureSnapshot('monthly'), 1000);
+        }
+      }
+    };
+    
+    initializeData();
   }, []);
 
   return (
@@ -148,180 +574,182 @@ function App() {
                 Let's grind
               </p>
             </div>
-            <button
-              onClick={loadAllStats}
-              disabled={loading}
-              className="px-6 py-3 bg-[#FFA116] hover:bg-[#FFB84D] disabled:bg-gray-700 disabled:cursor-not-allowed text-black font-semibold rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl disabled:text-gray-500"
-            >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <IoMdRefresh className="animate-spin h-5 w-5" />
-                  Refreshing...
-                </span>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <IoMdRefresh className="h-5 w-5" />
-                  Refresh Stats
-                </span>
-              )}
-            </button>
           </div>
+
+
         </div>
 
         {/* Navigation Tabs */}
-        <div className="mb-6 border-b border-gray-800">
-          <nav className="flex gap-4">
-            <button
-              onClick={() => setActiveTab('total')}
-              className={`px-6 py-3 font-semibold transition-all duration-200 border-b-2 ${
-                activeTab === 'total'
-                  ? 'border-[#FFA116] text-[#FFA116]'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              Total Stats
-            </button>
-            <button
-              onClick={() => setActiveTab('monthly')}
-              className={`px-6 py-3 font-semibold transition-all duration-200 border-b-2 ${
-                activeTab === 'monthly'
-                  ? 'border-[#FFA116] text-[#FFA116]'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              Monthly Stats
-            </button>
-            <button
-              onClick={() => setActiveTab('weekly')}
-              className={`px-6 py-3 font-semibold transition-all duration-200 border-b-2 ${
-                activeTab === 'weekly'
-                  ? 'border-[#FFA116] text-[#FFA116]'
-                  : 'border-transparent text-gray-400 hover:text-gray-300'
-              }`}
-            >
-              Weekly Stats
-            </button>
-          </nav>
-        </div>
+        <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
 
-        {/* Loading State */}
-        {activeTab === 'total' && (
+        {/* All Time View */}
+        {activeTab === 'all' && (
           <>
-        {loading && userStats.length === 0 ? (
-          <div className="flex items-center justify-center py-32">
-            <div className="text-center">
-              <div className="inline-flex items-center justify-center w-16 h-16 mb-6">
-                <IoMdRefresh className="animate-spin h-16 w-16 text-[#FFA116]" />
+            {loading && userStats.length === 0 ? (
+              <div className="flex items-center justify-center py-32">
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 mb-6">
+                    <IoMdRefresh className="animate-spin h-16 w-16 text-[#FFA116]" />
+                  </div>
+                  <p className="text-gray-400 text-xl font-medium">Loading leaderboard...</p>
+                </div>
               </div>
-              <p className="text-gray-400 text-xl font-medium">Loading leaderboard...</p>
-            </div>
-          </div>
-        ) : (
-          /* Leaderboard Table */
-          <div className="overflow-hidden rounded-xl border border-gray-800 shadow-2xl">
-            <table className="min-w-full">
-              <thead className="bg-[#262626]">
-                <tr>
-                  <th className="px-6 py-5 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    Rank
-                  </th>
-                  <th className="px-6 py-5 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    Username
-                  </th>
-                  <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    <span className="text-[#00B8A3]">Easy</span>
-                  </th>
-                  <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    <span className="text-[#FFC01E]">Medium</span>
-                  </th>
-                  <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    <span className="text-[#FF375F]">Hard</span>
-                  </th>
-                  <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-800">
-                {userStats.map((user, index) => (
-                  <tr
-                    key={user.username}
-                    className={`${
-                      index % 2 === 0 ? 'bg-[#262626]' : 'bg-[#2d2d2d]'
-                    } hover:bg-[#333333] transition-colors duration-150`}
-                  >
-                    <td className="px-6 py-5 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-lg font-bold ${user.rank === 1 ? 'text-yellow-400' : user.rank === 2 ? 'text-gray-300' : user.rank === 3 ? 'text-amber-600' : 'text-white'}`}>
-                          #{user.rank}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 whitespace-nowrap">
-                      <div>
-                        <div className="text-base font-semibold text-white">
-                          {user.username}
-                        </div>
-                        {user.error && (
-                          <div className="text-xs text-red-400 mt-1 flex items-center gap-1">
-                            <MdError />
-                            {user.error}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-5 whitespace-nowrap text-right">
-                      <span className="text-base font-semibold text-[#00B8A3]">
-                        {user.error ? 'N/A' : user.easy}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 whitespace-nowrap text-right">
-                      <span className="text-base font-semibold text-[#FFC01E]">
-                        {user.error ? 'N/A' : user.medium}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 whitespace-nowrap text-right">
-                      <span className="text-base font-semibold text-[#FF375F]">
-                        {user.error ? 'N/A' : user.hard}
-                      </span>
-                    </td>
-                    <td className="px-6 py-5 whitespace-nowrap text-right">
-                      <span className="text-base font-semibold text-gray-300">
-                        {user.error ? 'N/A' : user.total}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+            ) : (
+              <LeaderboardTable
+                userStats={userStats}
+                weeklySnapshot={weeklySnapshot}
+                monthlySnapshot={monthlySnapshot}
+                onRemoveUser={removeUser}
+                calculateDelta={calculateDelta}
+              />
+            )}
           </>
         )}
 
         {/* Weekly Stats */}
         {activeTab === 'weekly' && (
-          <div className="text-center py-20">
-            <div className="inline-flex items-center justify-center w-16 h-16 mb-6 bg-[#262626] rounded-full">
-              <FaTrophy className="text-4xl text-[#FFA116]" />
-            </div>
-            <h3 className="text-2xl font-bold text-white mb-3">Weekly Stats Coming Soon</h3>
-            <p className="text-gray-400 max-w-md mx-auto">
-              Track your weekly progress and compete with friends. This feature will automatically reset every week to show fresh rankings.
-            </p>
-          </div>
+          <>
+            {loading ? (
+              <div className="flex items-center justify-center py-32">
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 mb-6">
+                    <IoMdRefresh className="animate-spin h-16 w-16 text-[#FFA116]" />
+                  </div>
+                  <p className="text-gray-400 text-xl font-medium">Loading weekly progress...</p>
+                </div>
+              </div>
+            ) : weeklyStats.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="inline-flex items-center justify-center w-16 h-16 mb-6 bg-[#262626] rounded-full">
+                  <FaTrophy className="text-4xl text-green-400" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-3">No Users Yet</h3>
+                <p className="text-gray-400 max-w-md mx-auto">
+                  Add users to see weekly progress tracking.
+                </p>
+              </div>
+            ) : (
+              <>
+                {!weeklySnapshot && (
+                  <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg text-yellow-200 text-sm">
+                    ⚠️ No weekly baseline yet. Progress will show as 0 until a snapshot is captured.
+                  </div>
+                )}
+                <LeaderboardTable
+                  userStats={weeklyStats}
+                  weeklySnapshot={weeklySnapshot}
+                  monthlySnapshot={null}
+                  onRemoveUser={removeUser}
+                  calculateDelta={calculateDelta}
+                />
+              </>
+            )}
+          </>
         )}
 
         {/* Monthly Stats */}
         {activeTab === 'monthly' && (
-          <div className="text-center py-20">
-            <div className="inline-flex items-center justify-center w-16 h-16 mb-6 bg-[#262626] rounded-full">
-              <FaTrophy className="text-4xl text-[#FFA116]" />
+          <>
+            {loading ? (
+              <div className="flex items-center justify-center py-32">
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-16 h-16 mb-6">
+                    <IoMdRefresh className="animate-spin h-16 w-16 text-[#FFA116]" />
+                  </div>
+                  <p className="text-gray-400 text-xl font-medium">Loading monthly progress...</p>
+                </div>
+              </div>
+            ) : monthlyStats.length === 0 ? (
+              <div className="text-center py-20">
+                <div className="inline-flex items-center justify-center w-16 h-16 mb-6 bg-[#262626] rounded-full">
+                  <FaTrophy className="text-4xl text-purple-400" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-3">No Users Yet</h3>
+                <p className="text-gray-400 max-w-md mx-auto">
+                  Add users to see monthly progress tracking.
+                </p>
+              </div>
+            ) : (
+              <>
+                {!monthlySnapshot && (
+                  <div className="mb-4 p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg text-yellow-200 text-sm">
+                    ⚠️ No monthly baseline yet. Progress will show as 0 until a snapshot is captured.
+                  </div>
+                )}
+                <LeaderboardTable
+                  userStats={monthlyStats}
+                  weeklySnapshot={null}
+                  monthlySnapshot={monthlySnapshot}
+                  onRemoveUser={removeUser}
+                  calculateDelta={calculateDelta}
+                />
+              </>
+            )}
+          </>
+        )}
+
+        {/* Floating Add User Button */}
+        <button
+          onClick={() => setShowAddUserModal(true)}
+          className="fixed bottom-8 right-8 w-14 h-14 bg-[#FFA116] hover:bg-[#FFB84D] text-black rounded-full shadow-lg flex items-center justify-center text-2xl font-bold transition-all duration-200 hover:scale-110"
+          title="Add User"
+        >
+          +
+        </button>
+
+        {/* Add User Modal */}
+        {showAddUserModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowAddUserModal(false)}>
+            <div className="bg-[#262626] rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+                  <FaCode className="text-[#FFA116]" />
+                  Add User
+                </h2>
+                <button
+                  onClick={() => setShowAddUserModal(false)}
+                  className="text-gray-400 hover:text-white text-2xl transition-colors"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <form onSubmit={(e) => { e.preventDefault(); addUser(); setShowAddUserModal(false); }} className="space-y-4">
+                <div>
+                  <label htmlFor="modal-leetcode-username" className="block text-sm font-medium text-gray-400 mb-2">
+                    LeetCode Username
+                  </label>
+                  <input
+                    type="text"
+                    id="modal-leetcode-username"
+                    name="username"
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="Enter LeetCode username"
+                    autoComplete="username"
+                    autoFocus
+                    className="w-full px-4 py-3 bg-[#1a1a1a] text-white border border-gray-700 rounded-lg focus:outline-none focus:border-[#FFA116] transition-colors"
+                  />
+                </div>
+                
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => { setShowAddUserModal(false); setNewUsername(''); }}
+                    className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-all duration-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!newUsername.trim() || loading}
+                    className="flex-1 px-4 py-3 bg-[#FFA116] hover:bg-[#FFB84D] disabled:bg-gray-700 disabled:cursor-not-allowed text-black font-semibold rounded-lg transition-all duration-200"
+                  >
+                    {loading ? 'Adding...' : 'Add User'}
+                  </button>
+                </div>
+              </form>
             </div>
-            <h3 className="text-2xl font-bold text-white mb-3">Monthly Stats Coming Soon</h3>
-            <p className="text-gray-400 max-w-md mx-auto">
-              Track your monthly progress and compete with friends. This feature will automatically reset every month to show fresh rankings.
-            </p>
           </div>
         )}
       </div>

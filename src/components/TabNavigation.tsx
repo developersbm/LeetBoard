@@ -1,0 +1,41 @@
+interface TabNavigationProps {
+  activeTab: 'all' | 'weekly' | 'monthly';
+  onTabChange: (tab: 'all' | 'weekly' | 'monthly') => void;
+}
+
+export default function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
+  return (
+    <div className="flex gap-4 border-b border-gray-700">
+      <button
+        onClick={() => onTabChange('all')}
+        className={`px-6 py-3 font-semibold transition-all duration-200 ${
+          activeTab === 'all'
+            ? 'text-[#FFA116] border-b-2 border-[#FFA116]'
+            : 'text-gray-400 hover:text-gray-200'
+        }`}
+      >
+        All Time
+      </button>
+      <button
+        onClick={() => onTabChange('weekly')}
+        className={`px-6 py-3 font-semibold transition-all duration-200 ${
+          activeTab === 'weekly'
+            ? 'text-green-400 border-b-2 border-green-400'
+            : 'text-gray-400 hover:text-gray-200'
+        }`}
+      >
+        Weekly Progress
+      </button>
+      <button
+        onClick={() => onTabChange('monthly')}
+        className={`px-6 py-3 font-semibold transition-all duration-200 ${
+          activeTab === 'monthly'
+            ? 'text-purple-400 border-b-2 border-purple-400'
+            : 'text-gray-400 hover:text-gray-200'
+        }`}
+      >
+        Monthly Progress
+      </button>
+    </div>
+  );
+}
