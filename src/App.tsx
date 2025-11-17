@@ -96,6 +96,19 @@ function App() {
 
       const data: LeetCodeResponse = await response.json();
 
+      // If API indicates the user does not exist, return a specific error
+      if (data.status === 'error' && data.message && data.message.toLowerCase().includes('user does not exist')) {
+        return {
+          username,
+          easy: 0,
+          medium: 0,
+          hard: 0,
+          total: 0,
+          rank: 0,
+          error: 'this is not a leetcode user',
+        };
+      }
+
       // Check if the request was successful
       if (data.status !== 'success') {
         return {
@@ -177,6 +190,11 @@ function App() {
       
       // Check if user exists on LeetCode
       if (userCurrentStats.error) {
+        if (userCurrentStats.error === 'this is not a leetcode user') {
+          alert('This is not a leetcode user');
+          setLoading(false);
+          return false;
+        }
         alert(`Could not add user: "${trimmedUsername}" does not exist on LeetCode or the API is down.`);
         setLoading(false);
         return false;
