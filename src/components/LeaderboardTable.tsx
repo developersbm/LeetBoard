@@ -9,6 +9,7 @@ interface UserStats {
   medium: number;
   hard: number;
   total: number;
+  xp: number;
   error?: string | null;
 }
 
@@ -53,6 +54,9 @@ export default function LeaderboardTable({
             </th>
             <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               <span className="text-[#FF375F]">Hard</span>
+            </th>
+            <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
+              <span className="text-[#9B5CF6]">XP</span>
             </th>
             <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               Total
@@ -113,6 +117,11 @@ export default function LeaderboardTable({
               <td className="px-6 py-5 whitespace-nowrap text-right">
                 <span className="text-base font-semibold text-[#FF375F]">
                   {user.error ? 'N/A' : user.hard}
+                </span>
+              </td>
+              <td className="px-6 py-5 whitespace-nowrap text-right">
+                <span className="text-base font-semibold text-[#9B5CF6]">
+                  {user.error ? 'N/A' : user.xp}
                 </span>
               </td>
               <td className="px-6 py-5 whitespace-nowrap text-right">

@@ -21,6 +21,7 @@ interface DifficultyStats {
   medium: number;
   hard: number;
   total: number;
+  xp: number;
 }
 
 interface UserStats extends DifficultyStats {
@@ -39,6 +40,7 @@ interface SnapshotUserStats {
   medium: number;
   hard: number;
   total: number;
+  xp: number;
 }
 
 interface FirestoreUser {
@@ -115,6 +117,7 @@ function App() {
                 medium: 0,
                 hard: 0,
                 total: 0,
+                xp: 0,
                 rank: 0,
                 error: 'this is not a leetcode user',
               };
@@ -134,6 +137,7 @@ function App() {
             medium: 0,
             hard: 0,
             total: 0,
+            xp: 0,
             rank: 0,
             error: 'this is not a leetcode user',
           };
@@ -147,6 +151,7 @@ function App() {
             medium: 0,
             hard: 0,
             total: 0,
+            xp: 0,
             rank: 0,
             error: 'User not found',
           };
@@ -156,6 +161,7 @@ function App() {
         const medium = data.mediumSolved;
         const hard = data.hardSolved;
         const total = data.totalSolved;
+        const xp = (easy * 1) + (medium * 2) + (hard * 4);
 
         return {
           username,
@@ -163,6 +169,7 @@ function App() {
           medium,
           hard,
           total,
+          xp,
           rank: 0, // Will be assigned after sorting
           error: null,
         };
@@ -176,6 +183,7 @@ function App() {
             medium: 0,
             hard: 0,
             total: 0,
+            xp: 0,
             rank: 0,
             error: error instanceof Error ? error.message : 'LeetCode API unavailable',
           };
@@ -195,6 +203,7 @@ function App() {
       medium: 0,
       hard: 0,
       total: 0,
+      xp: 0,
       rank: 0,
       error: 'Error fetching data',
     };
@@ -327,7 +336,8 @@ function App() {
         easy: userStats.easy,
         medium: userStats.medium,
         hard: userStats.hard,
-        total: userStats.total
+        total: userStats.total,
+        xp: userStats.xp
       };
       
       // Add user to all existing snapshots
@@ -394,7 +404,8 @@ function App() {
           easy: user.easy,
           medium: user.medium,
           hard: user.hard,
-          total: user.total
+          total: user.total,
+          xp: user.xp
         }))
       };
 
@@ -428,21 +439,30 @@ function App() {
       // User not in snapshot yet - show as 0 progress
       return {
         username: current.username,
+        name: current.name,
         easy: 0,
         medium: 0,
         hard: 0,
         total: 0,
+        xp: 0,
         rank: 0,
         error: current.error
       };
     }
 
+    const easyDelta = Math.max(0, current.easy - baseline.easy);
+    const mediumDelta = Math.max(0, current.medium - baseline.medium);
+    const hardDelta = Math.max(0, current.hard - baseline.hard);
+    const xpDelta = (easyDelta * 1) + (mediumDelta * 2) + (hardDelta * 4);
+
     return {
       username: current.username,
-      easy: Math.max(0, current.easy - baseline.easy),
-      medium: Math.max(0, current.medium - baseline.medium),
-      hard: Math.max(0, current.hard - baseline.hard),
+      name: current.name,
+      easy: easyDelta,
+      medium: mediumDelta,
+      hard: hardDelta,
       total: Math.max(0, current.total - baseline.total),
+      xp: xpDelta,
       rank: 0,
       error: current.error
     };
@@ -483,9 +503,10 @@ function App() {
         name: usersToFetch[idx]?.name,
       }));
 
-      // Sort by total descending
+      // Sort by XP descending with total as tiebreaker
       const sortedStats = statsWithNames.sort((a: UserStats, b: UserStats) => {
-        return b.total - a.total;
+        if (b.xp === a.xp) return b.total - a.total;
+        return b.xp - a.xp;
       });
 
       // Assign ranks
@@ -508,9 +529,12 @@ function App() {
         return progress;
       });
       
-      // Sort by total progress (problems solved since baseline)
+      // Sort by XP descending with total as tiebreaker
       const weeklyRanked = weeklyProgress
-        .sort((a, b) => b.total - a.total)
+        .sort((a, b) => {
+          if (b.xp === a.xp) return b.total - a.total;
+          return b.xp - a.xp;
+        })
         .map((stat, index) => ({ ...stat, rank: index + 1 }));
       setWeeklyStats(weeklyRanked);
       
@@ -520,9 +544,12 @@ function App() {
         return computeProgress(stat, baselineUser);
       });
       
-      // Sort by total progress (problems solved since baseline)
+      // Sort by XP descending with total as tiebreaker
       const monthlyRanked = monthlyProgress
-        .sort((a, b) => b.total - a.total)
+        .sort((a, b) => {
+          if (b.xp === a.xp) return b.total - a.total;
+          return b.xp - a.xp;
+        })
         .map((stat, index) => ({ ...stat, rank: index + 1 }));
       setMonthlyStats(monthlyRanked);
     } catch (error) {
