@@ -11,33 +11,15 @@ interface UserStats {
   error?: string | null;
 }
 
-interface LeaderboardSnapshot {
-  id?: string;
-  period: 'weekly' | 'monthly';
-  createdAt: string;
-  users: Array<{
-    username: string;
-    easy: number;
-    medium: number;
-    hard: number;
-    total: number;
-  }>;
-}
 
 interface LeaderboardTableProps {
   userStats: UserStats[];
-  weeklySnapshot: LeaderboardSnapshot | null;
-  monthlySnapshot: LeaderboardSnapshot | null;
   onRemoveUser: (username: string) => void;
-  calculateDelta: (username: string, currentTotal: number, snapshot: LeaderboardSnapshot | null) => number | null;
 }
 
 export default function LeaderboardTable({ 
   userStats, 
-  weeklySnapshot, 
-  monthlySnapshot, 
   onRemoveUser,
-  calculateDelta 
 }: LeaderboardTableProps) {
   if (userStats.length === 0) {
     return (

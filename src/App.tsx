@@ -409,14 +409,6 @@ function App() {
     };
   };
 
-  // Calculate delta (for table display)
-  const calculateDelta = (username: string, currentTotal: number, snapshot: LeaderboardSnapshot | null): number | null => {
-    if (!snapshot) return null;
-    const snapshotUser = findSnapshotUser(snapshot, username);
-    if (!snapshotUser) return 0; // New user shows 0 delta
-    return currentTotal - snapshotUser.total;
-  };
-
   // Load stats for all users
   const loadAllStats = async (userList?: string[], weeklySnap?: LeaderboardSnapshot | null, monthlySnap?: LeaderboardSnapshot | null) => {
     setLoading(true);
@@ -597,10 +589,7 @@ function App() {
             ) : (
               <LeaderboardTable
                 userStats={userStats}
-                weeklySnapshot={weeklySnapshot}
-                monthlySnapshot={monthlySnapshot}
                 onRemoveUser={removeUser}
-                calculateDelta={calculateDelta}
               />
             )}
           </>
@@ -637,10 +626,7 @@ function App() {
                 )}
                 <LeaderboardTable
                   userStats={weeklyStats}
-                  weeklySnapshot={weeklySnapshot}
-                  monthlySnapshot={null}
                   onRemoveUser={removeUser}
-                  calculateDelta={calculateDelta}
                 />
               </>
             )}
@@ -678,10 +664,7 @@ function App() {
                 )}
                 <LeaderboardTable
                   userStats={monthlyStats}
-                  weeklySnapshot={null}
-                  monthlySnapshot={monthlySnapshot}
                   onRemoveUser={removeUser}
-                  calculateDelta={calculateDelta}
                 />
               </>
             )}
