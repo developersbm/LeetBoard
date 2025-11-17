@@ -15,12 +15,10 @@ interface UserStats {
 
 interface LeaderboardTableProps {
   userStats: UserStats[];
-  onRemoveUser: (username: string) => void;
 }
 
 export default function LeaderboardTable({ 
   userStats, 
-  onRemoveUser,
 }: LeaderboardTableProps) {
   if (userStats.length === 0) {
     return (

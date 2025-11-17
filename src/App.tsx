@@ -215,56 +215,7 @@ function App() {
     }
   };
 
-  // Remove user from Firestore
-  const removeUser = async (username: string) => {
-    try {
-      const usersRef = collection(db, 'users');
-      const snapshot = await getDocs(usersRef);
-      const userDoc = snapshot.docs.find(doc => doc.data().username === username);
-      
-      if (userDoc) {
-        // Delete user from users collection
-        await deleteDoc(doc(db, 'users', userDoc.id));
-        
-        // Remove user from all snapshots
-        const snapshotsRef = collection(db, 'leaderboardSnapshots');
-        const snapshotsSnapshot = await getDocs(snapshotsRef);
-        
-        const updatePromises = snapshotsSnapshot.docs.map(async (snapshotDoc) => {
-          const data = snapshotDoc.data() as LeaderboardSnapshot;
-          
-          // Check if user exists in this snapshot
-          const userExists = data.users.some(u => u.username === username);
-          if (userExists) {
-            // Remove user from the users array
-            const updatedUsers = data.users.filter(u => u.username !== username);
-            
-            // Update the snapshot document with the filtered users
-            await deleteDoc(doc(db, 'leaderboardSnapshots', snapshotDoc.id));
-            if (updatedUsers.length > 0) {
-              // Only recreate if there are remaining users
-              await addDoc(snapshotsRef, {
-                ...data,
-                users: updatedUsers
-              });
-            }
-          }
-        });
-        
-        await Promise.all(updatePromises);
-        
-        // Reload data
-        const updatedUsers = await loadUsersFromFirestore();
-        const weekly = await loadLatestSnapshot('weekly');
-        const monthly = await loadLatestSnapshot('monthly');
-        setWeeklySnapshot(weekly);
-        setMonthlySnapshot(monthly);
-        await loadAllStats(updatedUsers, weekly, monthly);
-      }
-    } catch (error) {
-      console.error('Error removing user:', error);
-    }
-  };
+  
 
   // Load latest snapshot for a period
   const loadLatestSnapshot = async (period: SnapshotPeriod): Promise<LeaderboardSnapshot | null> => {
@@ -614,7 +565,6 @@ function App() {
             ) : (
               <LeaderboardTable
                 userStats={userStats}
-                onRemoveUser={removeUser}
               />
             )}
           </>
@@ -651,7 +601,6 @@ function App() {
                 )}
                 <LeaderboardTable
                   userStats={weeklyStats}
-                  onRemoveUser={removeUser}
                 />
               </>
             )}
@@ -689,7 +638,6 @@ function App() {
                 )}
                 <LeaderboardTable
                   userStats={monthlyStats}
-                  onRemoveUser={removeUser}
                 />
               </>
             )}
