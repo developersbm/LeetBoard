@@ -3,6 +3,7 @@ import { MdError } from 'react-icons/md';
 
 interface UserStats {
   username: string;
+  name?: string;
   rank: number;
   easy: number;
   medium: number;
@@ -88,6 +89,9 @@ export default function LeaderboardTable({
                   <div className="text-base font-semibold text-white">
                     {user.username}
                   </div>
+                  {user.name && (
+                    <div className="text-sm text-gray-400 mt-1">{user.name}</div>
+                  )}
                   {user.error && (
                     <div className="text-xs text-red-400 mt-1 flex items-center gap-1">
                       <MdError />

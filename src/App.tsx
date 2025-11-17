@@ -25,6 +25,7 @@ interface DifficultyStats {
 
 interface UserStats extends DifficultyStats {
   username: string;
+  name?: string;
   rank: number;
   error?: string | null;
 }
@@ -33,10 +34,17 @@ type SnapshotPeriod = 'weekly' | 'monthly';
 
 interface SnapshotUserStats {
   username: string;
+  name?: string;
   easy: number;
   medium: number;
   hard: number;
   total: number;
+}
+
+interface FirestoreUser {
+  id?: string;
+  username: string;
+  name?: string;
 }
 
 interface LeaderboardSnapshot {
@@ -68,8 +76,9 @@ function App() {
   const [userStats, setUserStats] = useState<UserStats[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<'all' | 'weekly' | 'monthly'>('all');
-  const [usernames, setUsernames] = useState<string[]>([]);
+  const [users, setUsers] = useState<FirestoreUser[]>([]);
   const [newUsername, setNewUsername] = useState<string>('');
+  const [newName, setNewName] = useState<string>('');
   const [weeklySnapshot, setWeeklySnapshot] = useState<LeaderboardSnapshot | null>(null);
   const [monthlySnapshot, setMonthlySnapshot] = useState<LeaderboardSnapshot | null>(null);
   const [weeklyStats, setWeeklyStats] = useState<UserStats[]>([]);
@@ -133,8 +142,12 @@ function App() {
     try {
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
-      const userList = snapshot.docs.map(doc => doc.data().username as string);
-      setUsernames(userList);
+      const userList: FirestoreUser[] = snapshot.docs.map(d => ({
+        id: d.id,
+        username: (d.data() as any).username as string,
+        name: (d.data() as any).name as string | undefined,
+      }));
+      setUsers(userList);
       return userList;
     } catch (error) {
       console.error('Error loading users from Firestore:', error);
@@ -143,14 +156,18 @@ function App() {
   };
 
   // Add user to Firestore
-  const addUser = async () => {
+  const addUser = async (): Promise<boolean> => {
     const trimmedUsername = newUsername.trim();
-    if (!trimmedUsername) return;
-    
+    const trimmedName = newName.trim();
+    if (!trimmedUsername || !trimmedName) {
+      alert('Please provide both a LeetCode username and a display name.');
+      return false;
+    }
+
     // Check if user already exists
-    if (usernames.includes(trimmedUsername)) {
+    if (users.some(u => u.username === trimmedUsername)) {
       alert(`User "${trimmedUsername}" already exists!`);
-      return;
+      return false;
     }
     
     try {
@@ -159,22 +176,23 @@ function App() {
       const userCurrentStats = await fetchUserStats(trimmedUsername);
       
       // Check if user exists on LeetCode
-      if (userCurrentStats.error === 'User not found') {
-        alert(`User "${trimmedUsername}" does not exist on LeetCode. Please check the username and try again.`);
+      if (userCurrentStats.error) {
+        alert(`Could not add user: "${trimmedUsername}" does not exist on LeetCode or the API is down.`);
         setLoading(false);
-        return;
+        return false;
       }
       
       await addDoc(collection(db, 'users'), {
         username: trimmedUsername,
+        name: trimmedName,
         createdAt: new Date().toISOString()
       });
       setNewUsername('');
+      setNewName('');
       const updatedUsers = await loadUsersFromFirestore();
-      await loadAllStats(updatedUsers);
       
-      // Add user to existing snapshots with current stats as baseline
-      await addUserToSnapshots(trimmedUsername, userCurrentStats);
+      // Add user to existing snapshots with current stats as baseline (include display name)
+      await addUserToSnapshots(trimmedUsername, userCurrentStats, trimmedName);
       
       // Small delay to ensure Firestore has processed the updates
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -183,17 +201,17 @@ function App() {
       const weekly = await loadLatestSnapshot('weekly');
       const monthly = await loadLatestSnapshot('monthly');
       
-      console.log('Loaded weekly snapshot:', weekly);
-      console.log('Loaded monthly snapshot:', monthly);
-      
       setWeeklySnapshot(weekly);
       setMonthlySnapshot(monthly);
       
       // Recalculate rankings with updated snapshots
       await loadAllStats(updatedUsers, weekly, monthly);
+      return true; // Indicate success
     } catch (error) {
       console.error('Error adding user:', error);
       alert('Failed to add user. Please try again.');
+      setLoading(false);
+      return false; // Indicate failure
     }
   };
 
@@ -279,13 +297,14 @@ function App() {
   };
 
   // Add user to existing snapshots
-  const addUserToSnapshots = async (username: string, userStats: UserStats) => {
+  const addUserToSnapshots = async (username: string, userStats: UserStats, name?: string) => {
     try {
       const snapshotsRef = collection(db, 'leaderboardSnapshots');
       const snapshot = await getDocs(snapshotsRef);
       
       const newUserData = {
         username: username,
+        name: name,
         easy: userStats.easy,
         medium: userStats.medium,
         hard: userStats.hard,
@@ -352,6 +371,7 @@ function App() {
         createdAt: new Date().toISOString(),
         users: userStats.map(user => ({
           username: user.username,
+          name: user.name,
           easy: user.easy,
           medium: user.medium,
           hard: user.hard,
@@ -410,11 +430,11 @@ function App() {
   };
 
   // Load stats for all users
-  const loadAllStats = async (userList?: string[], weeklySnap?: LeaderboardSnapshot | null, monthlySnap?: LeaderboardSnapshot | null) => {
+  const loadAllStats = async (userList?: FirestoreUser[], weeklySnap?: LeaderboardSnapshot | null, monthlySnap?: LeaderboardSnapshot | null) => {
     setLoading(true);
 
     try {
-      const usersToFetch = userList || usernames;
+      const usersToFetch = userList || users;
       
       if (usersToFetch.length === 0) {
         setUserStats([]);
@@ -433,14 +453,19 @@ function App() {
         monthly: currentMonthlySnapshot ? `${currentMonthlySnapshot.users.length} users` : 'null'
       });
 
-      // Fetch all users in parallel
-      const statsPromises = usersToFetch.map((username: string) =>
-        fetchUserStats(username)
+      // Fetch all users in parallel and attach display names from Firestore
+      const stats = await Promise.all(
+        usersToFetch.map((u: FirestoreUser) => fetchUserStats(u.username))
       );
-      const stats = await Promise.all(statsPromises);
+
+      // Attach names from usersToFetch to the fetched stats (preserve order)
+      const statsWithNames: UserStats[] = stats.map((s, idx) => ({
+        ...s,
+        name: usersToFetch[idx]?.name,
+      }));
 
       // Sort by total descending
-      const sortedStats = stats.sort((a: UserStats, b: UserStats) => {
+      const sortedStats = statsWithNames.sort((a: UserStats, b: UserStats) => {
         return b.total - a.total;
       });
 
@@ -697,7 +722,13 @@ function App() {
                 </button>
               </div>
               
-              <form onSubmit={(e) => { e.preventDefault(); addUser(); setShowAddUserModal(false); }} className="space-y-4">
+              <form onSubmit={async (e) => { 
+                e.preventDefault(); 
+                const success = await addUser();
+                if (success) {
+                  setShowAddUserModal(false);
+                }
+              }} className="space-y-4">
                 <div>
                   <label htmlFor="modal-leetcode-username" className="block text-sm font-medium text-gray-400 mb-2">
                     LeetCode Username
@@ -714,6 +745,21 @@ function App() {
                     className="w-full px-4 py-3 bg-[#1a1a1a] text-white border border-gray-700 rounded-lg focus:outline-none focus:border-[#FFA116] transition-colors"
                   />
                 </div>
+
+                <div>
+                  <label htmlFor="modal-display-name" className="block text-sm font-medium text-gray-400 mb-2">
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    id="modal-display-name"
+                    name="displayName"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    placeholder="Enter a name to display (e.g. 'Sebastian')"
+                    className="w-full px-4 py-3 bg-[#1a1a1a] text-white border border-gray-700 rounded-lg focus:outline-none focus:border-[#FFA116] transition-colors"
+                  />
+                </div>
                 
                 <div className="flex gap-3">
                   <button
@@ -725,7 +771,7 @@ function App() {
                   </button>
                   <button
                     type="submit"
-                    disabled={!newUsername.trim() || loading}
+                    disabled={!newUsername.trim() || !newName.trim() || loading}
                     className="flex-1 px-4 py-3 bg-[#FFA116] hover:bg-[#FFB84D] disabled:bg-gray-700 disabled:cursor-not-allowed text-black font-semibold rounded-lg transition-all duration-200"
                   >
                     {loading ? 'Adding...' : 'Add User'}
