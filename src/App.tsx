@@ -148,6 +148,7 @@ function App() {
 
   // Fetch stats for a single user
   const fetchUserStats = async (username: string, jobsApplied: number = 0): Promise<UserStats> => {
+    console.log(`🔍 Fetching stats for ${username} with ${jobsApplied} jobs`);
     const url = `https://leetcode-stats-api.herokuapp.com/${username}`;
     const maxRetries = 2; // total attempts = 1 + maxRetries
     let attempt = 0;
@@ -225,6 +226,8 @@ function App() {
         const total = data.totalSolved;
         const xp = (jobsApplied * 0.5) + (easy * 1) + (medium * 2) + (hard * 4);
 
+        console.log(`  ✅ ${username}: Jobs=${jobsApplied}, XP=${xp} (${jobsApplied * 0.5} from jobs)`);
+
         return {
           username,
           jobsApplied,
@@ -279,11 +282,16 @@ function App() {
     try {
       const usersRef = collection(db, 'users');
       const snapshot = await getDocs(usersRef);
-      const userList: FirestoreUser[] = snapshot.docs.map(d => ({
-        id: d.id,
-        username: (d.data() as any).username as string,
-        name: (d.data() as any).name as string | undefined,
-      }));
+      const userList: FirestoreUser[] = snapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          id: d.id,
+          username: data.username as string,
+          name: data.name as string | undefined,
+          jobsApplied: data.jobsApplied as number | undefined,
+        };
+      });
+      console.log('📋 Loaded users with job counts:', userList.map(u => `${u.username}: ${u.jobsApplied || 0}`));
       setUsers(userList);
       return userList;
     } catch (error) {
@@ -330,8 +338,9 @@ function App() {
       setJobCompany('');
       setSelectedJobUsername('');
       
-      // Reload stats to reflect the new job
-      await loadAllStats();
+      // Reload users and stats to reflect the new job
+      const updatedUsers = await loadUsersFromFirestore();
+      await loadAllStats(updatedUsers);
       await loadAllJobs();
       return true;
     } catch (error) {
@@ -371,8 +380,9 @@ function App() {
       // Update local state for immediate UI feedback
       setAllJobs(prevJobs => prevJobs.filter(job => job.id !== jobId));
       
-      // Reload all stats to update XP and rankings
-      await loadAllStats();
+      // Reload users and stats to update XP and rankings
+      const updatedUsers = await loadUsersFromFirestore();
+      await loadAllStats(updatedUsers);
     } catch (error) {
       console.error('Error deleting job:', error);
       alert('Failed to delete job. Please try again.');
@@ -646,6 +656,9 @@ function App() {
     try {
       const usersToFetch = userList || await loadUsersFromFirestore();
       
+      // Always update the users state to keep it in sync
+      setUsers(usersToFetch);
+      
       if (usersToFetch.length === 0) {
         setUserStats([]);
         setWeeklyStats([]);
@@ -748,9 +761,60 @@ function App() {
     return isFirstOfMonth && isDifferentMonth;
   };
 
+  // Sync job counts from jobs collection to user documents
+  const syncJobCounts = async () => {
+    try {
+      console.log('🔄 Starting job count sync...');
+      const jobsRef = collection(db, 'jobs');
+      const jobsSnapshot = await getDocs(jobsRef);
+      
+      console.log(`📊 Found ${jobsSnapshot.docs.length} jobs in collection`);
+      
+      // Count jobs per username
+      const jobCounts = new Map<string, number>();
+      jobsSnapshot.docs.forEach(doc => {
+        const jobData = doc.data() as Job;
+        console.log(`  - Job for username: ${jobData.username}`);
+        jobCounts.set(jobData.username, (jobCounts.get(jobData.username) || 0) + 1);
+      });
+      
+      console.log('📈 Job counts by username:', Object.fromEntries(jobCounts));
+      
+      // Update each user's jobsApplied count
+      const usersRef = collection(db, 'users');
+      const usersSnapshot = await getDocs(usersRef);
+      
+      console.log(`👥 Found ${usersSnapshot.docs.length} users in collection`);
+      
+      const updatePromises = usersSnapshot.docs.map(async (userDoc) => {
+        const userData = userDoc.data() as FirestoreUser;
+        const actualJobCount = jobCounts.get(userData.username) || 0;
+        const currentJobCount = userData.jobsApplied || 0;
+        
+        console.log(`  User: ${userData.username}, Current: ${currentJobCount}, Actual: ${actualJobCount}`);
+        
+        // Only update if counts don't match
+        if (actualJobCount !== currentJobCount) {
+          console.log(`  ✅ Updating ${userData.username}: ${currentJobCount} -> ${actualJobCount}`);
+          await updateDoc(doc(db, 'users', userDoc.id), { 
+            jobsApplied: actualJobCount 
+          });
+        }
+      });
+      
+      await Promise.all(updatePromises);
+      console.log('✨ Job count sync completed!');
+    } catch (error) {
+      console.error('Error syncing job counts:', error);
+    }
+  };
+
   // Load users and snapshots on mount
   useEffect(() => {
     const initializeData = async () => {
+      // First, sync job counts to fix any discrepancies
+      await syncJobCounts();
+      
       const users = await loadUsersFromFirestore();
       
       // Load snapshots
