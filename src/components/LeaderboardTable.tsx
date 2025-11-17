@@ -59,9 +59,11 @@ export default function LeaderboardTable({
             <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               Total
             </th>
+            {/* Commented out Action column - delete disabled in UI
             <th className="px-6 py-5 text-center text-xs font-bold text-gray-400 uppercase tracking-wider">
               Action
             </th>
+            */}
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-800">
@@ -120,6 +122,7 @@ export default function LeaderboardTable({
                   {user.error ? 'N/A' : user.total}
                 </span>
               </td>
+              {/* Action removed: delete button commented out
               <td className="px-6 py-5 whitespace-nowrap text-center">
                 <button
                   onClick={() => onRemoveUser(user.username)}
@@ -129,6 +132,7 @@ export default function LeaderboardTable({
                   ✕
                 </button>
               </td>
+              */}
             </tr>
           ))}
         </tbody>
