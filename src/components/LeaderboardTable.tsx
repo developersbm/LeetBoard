@@ -1,26 +1,13 @@
 import { FaTrophy } from 'react-icons/fa';
 import { MdError } from 'react-icons/md';
-
-interface UserStats {
-  username: string;
-  name?: string;
-  rank: number;
-  jobsApplied: number;
-  easy: number;
-  medium: number;
-  hard: number;
-  total: number;
-  xp: number;
-  error?: string | null;
-}
-
+import { UserStats } from '../types';
 
 interface LeaderboardTableProps {
   userStats: UserStats[];
 }
 
-export default function LeaderboardTable({ 
-  userStats, 
+export default function LeaderboardTable({
+  userStats,
 }: LeaderboardTableProps) {
   if (userStats.length === 0) {
     return (
@@ -47,8 +34,8 @@ export default function LeaderboardTable({
             <th className="px-6 py-5 text-left text-xs font-bold text-gray-400 uppercase tracking-wider">
               Username
             </th>
-              <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
-                <span className="text-blue-400">Jobs</span>
+            <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
+              <span className="text-blue-400">Jobs</span>
             </th>
             <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               <span className="text-[#00B8A3]">Easy</span>
@@ -62,7 +49,7 @@ export default function LeaderboardTable({
             <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               Total
             </th>
-              <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
+            <th className="px-6 py-5 text-right text-xs font-bold text-gray-400 uppercase tracking-wider">
               <span className="text-[#9B5CF6]">XP</span>
             </th>
             {/* Commented out Action column - delete disabled in UI
@@ -76,18 +63,16 @@ export default function LeaderboardTable({
           {userStats.map((user, index) => (
             <tr
               key={user.username}
-              className={`${
-                index % 2 === 0 ? 'bg-[#262626]' : 'bg-[#2d2d2d]'
-              } hover:bg-[#333333] transition-colors duration-150`}
+              className={`${index % 2 === 0 ? 'bg-[#262626]' : 'bg-[#2d2d2d]'
+                } hover:bg-[#333333] transition-colors duration-150`}
             >
               <td className="px-6 py-5 whitespace-nowrap">
                 <div className="flex items-center gap-2">
-                  <span className={`text-lg font-bold ${
-                    user.rank === 1 ? 'text-yellow-400' : 
-                    user.rank === 2 ? 'text-gray-300' : 
-                    user.rank === 3 ? 'text-amber-600' : 
-                    'text-white'
-                  }`}>
+                  <span className={`text-lg font-bold ${user.rank === 1 ? 'text-yellow-400' :
+                      user.rank === 2 ? 'text-gray-300' :
+                        user.rank === 3 ? 'text-amber-600' :
+                          'text-white'
+                    }`}>
                     #{user.rank}
                   </span>
                 </div>
@@ -109,7 +94,7 @@ export default function LeaderboardTable({
                 </div>
               </td>
               <td className="px-6 py-5 whitespace-nowrap text-right">
-                  <span className="text-base font-semibold text-blue-400">
+                <span className="text-base font-semibold text-blue-400">
                   {user.error ? 'N/A' : user.jobsApplied}
                 </span>
               </td>
