@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FaTrophy, FaCode, FaTrash, FaClock, FaListOl } from 'react-icons/fa';
+import { FaTrophy, FaCode, FaTrash, FaClock, FaListOl, FaFire } from 'react-icons/fa';
 import { IoMdRefresh, IoMdAlert } from 'react-icons/io';
 import { FaBoltLightning } from "react-icons/fa6";
 import { db } from './firebase';
@@ -19,7 +19,8 @@ import {
   FirestoreUser,
   Job,
   LeetCodeResponse,
-  SnapshotUserStats
+  SnapshotUserStats,
+  UserWins
 } from './types';
 import {
   ensureSnapshotsForCurrentPeriods,
@@ -31,6 +32,7 @@ import {
   getYearlyPeriodKey
 } from './utils/dateUtils';
 import { loadSnapshotByKey } from './utils/snapshotUtils';
+import { calculateHistoricalWins } from './utils/winUtils';
 import { subWeeks, subMonths, subYears } from 'date-fns';
 
 const STATUS_SEQUENCE: Job['status'][] = [
@@ -563,7 +565,8 @@ function App() {
       total: totalDelta,
       xp: xpDelta,
       rank: 0,
-      error: current.error
+      error: current.error,
+      wins: current.wins
     };
   };
 
@@ -573,7 +576,8 @@ function App() {
     weeklySnap?: LeaderboardSnapshot | null,
     monthlySnap?: LeaderboardSnapshot | null,
     yearlySnap?: LeaderboardSnapshot | null,
-    preFetchedStats?: UserStats[]
+    preFetchedStats?: UserStats[],
+    winsMap?: Map<string, UserWins>
   ) => {
     setLoading(true);
     try {
@@ -597,7 +601,10 @@ function App() {
 
       if (preFetchedStats) {
         console.log('⚡ Using pre-fetched stats to avoid double API call');
-        statsWithNames = preFetchedStats;
+        statsWithNames = preFetchedStats.map(s => ({
+          ...s,
+          wins: winsMap?.get(s.username)
+        }));
       } else {
         // Fetch all users with concurrency limit to avoid overwhelming the API
         const stats: UserStats[] = [];
@@ -618,6 +625,7 @@ function App() {
         statsWithNames = stats.map((s, idx) => ({
           ...s,
           name: usersToFetch[idx]?.name,
+          wins: winsMap?.get(s.username)
         }));
       }
 
@@ -821,8 +829,11 @@ function App() {
     setMonthlySnapshot(snapshots.monthly);
     setYearlySnapshot(snapshots.yearly);
 
-    // 5. Load Stats & Calculate Progress
-    await loadAllStats(currentUsers, snapshots.weekly, snapshots.monthly, snapshots.yearly, currentStats);
+    // 5. Calculate Wins
+    const winsMap = await calculateHistoricalWins();
+
+    // 6. Load Stats & Calculate Progress
+    await loadAllStats(currentUsers, snapshots.weekly, snapshots.monthly, snapshots.yearly, currentStats, winsMap);
 
     // 6. Load Jobs
     await loadAllJobs();
@@ -835,6 +846,8 @@ function App() {
     dataLoaded.current = true;
     loadAllData();
   }, []);
+
+
 
   return (
     <div className="min-h-screen bg-[#1a1a1a] text-white">
@@ -859,7 +872,11 @@ function App() {
               </p>
               <p className="text-gray-400 text-base flex items-center gap-2">
                 <FaBoltLightning className="text-[#FFA116]" />
-                XP: Job Apply = 0.5, Easy = 1, Medium = 2, Hard = 4.
+                XP - Job Apply = 0.5, Easy = 1, Medium = 2, Hard = 4.
+              </p>
+              <p className="text-gray-400 text-base flex items-center gap-2">
+                <FaFire className="text-[#FFA116]" />
+                Wins count only during active XP participation cycles.
               </p>
             </div>
             {/* Timer */}
@@ -881,13 +898,17 @@ function App() {
 
         {/* Toggle View for Leaderboard (Weekly/Monthly/Yearly) */}
         {(activeTab === 'weekly' || activeTab === 'monthly' || activeTab === 'yearly') && (
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center justify-center gap-2 px-4 py-2 bg-[#2d2d2d] border border-gray-700 rounded-lg text-sm text-gray-300 select-none">
+              <FaFire className="text-[#FFA116]" />
+              <span>Wins track total #1 ranks</span>
+            </div>
             <button
               onClick={() => handleViewPreviousLeaderboard(activeTab)}
-              className="flex items-center gap-2 px-4 py-2 bg-[#2d2d2d] hover:bg-[#333] border border-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-[#2d2d2d] hover:bg-[#333] border border-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
             >
               <FaListOl className="text-[#FFA116]" />
-              View Prev. {activeTab === 'weekly' ? 'Week' : activeTab === 'monthly' ? 'Month' : 'Year'} Leaderboard
+              <span>View Prev. {activeTab === 'weekly' ? 'Week' : activeTab === 'monthly' ? 'Month' : 'Year'} Leaderboard</span>
             </button>
           </div>
         )}

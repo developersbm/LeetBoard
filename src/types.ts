@@ -7,11 +7,18 @@ export interface DifficultyStats {
     xp: number;
 }
 
+export interface UserWins {
+    weekly: number;
+    monthly: number;
+    yearly: number;
+}
+
 export interface UserStats extends DifficultyStats {
     username: string;
     name?: string;
     rank: number;
     error?: string | null;
+    wins?: UserWins;
 }
 
 export type SnapshotPeriod = 'weekly' | 'monthly' | 'yearly';
@@ -40,6 +47,7 @@ export interface FirestoreUser {
     username: string;
     name?: string;
     jobsApplied?: number;
+    wins?: UserWins;
 }
 
 export interface Job {

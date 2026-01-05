@@ -1,4 +1,4 @@
-import { FaTrophy } from 'react-icons/fa';
+import { FaTrophy, FaFire } from 'react-icons/fa';
 import { MdError } from 'react-icons/md';
 import { UserStats } from '../types';
 
@@ -69,9 +69,9 @@ export default function LeaderboardTable({
               <td className="px-6 py-5 whitespace-nowrap">
                 <div className="flex items-center gap-2">
                   <span className={`text-lg font-bold ${user.rank === 1 ? 'text-yellow-400' :
-                      user.rank === 2 ? 'text-gray-300' :
-                        user.rank === 3 ? 'text-amber-600' :
-                          'text-white'
+                    user.rank === 2 ? 'text-gray-300' :
+                      user.rank === 3 ? 'text-amber-600' :
+                        'text-white'
                     }`}>
                     #{user.rank}
                   </span>
@@ -79,8 +79,32 @@ export default function LeaderboardTable({
               </td>
               <td className="px-6 py-5 whitespace-nowrap">
                 <div>
-                  <div className="text-base font-semibold text-white">
-                    {user.username}
+                  <div className="flex items-center gap-2">
+                    <div className="text-base font-semibold text-white">
+                      {user.username}
+                    </div>
+                    {user.wins && (user.wins.weekly > 0 || user.wins.monthly > 0 || user.wins.yearly > 0) && (
+                      <div className="flex items-center gap-1.5 ml-1">
+                        {user.wins.weekly > 0 && (
+                          <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-yellow-900/20 border border-yellow-700/30 rounded text-[10px] text-yellow-400 font-medium" title="Weekly Wins">
+                            <FaFire size={10} />
+                            <span>{user.wins.weekly}W</span>
+                          </div>
+                        )}
+                        {user.wins.monthly > 0 && (
+                          <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-900/20 border border-blue-700/30 rounded text-[10px] text-blue-400 font-medium" title="Monthly Wins">
+                            <FaFire size={10} />
+                            <span>{user.wins.monthly}M</span>
+                          </div>
+                        )}
+                        {user.wins.yearly > 0 && (
+                          <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-purple-900/20 border border-purple-700/30 rounded text-[10px] text-purple-400 font-medium" title="Yearly Wins">
+                            <FaFire size={10} />
+                            <span>{user.wins.yearly}Y</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   {user.name && (
                     <div className="text-sm text-gray-400 mt-1">{user.name}</div>
