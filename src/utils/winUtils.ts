@@ -58,10 +58,20 @@ export const calculateHistoricalWins = async (): Promise<Map<string, UserWins>> 
             yearly: snapshots.filter(s => s.period === 'yearly').sort((a, b) => (a.periodKey || '').localeCompare(b.periodKey || '')),
         };
 
-        const processPeriod = (snaps: LeaderboardSnapshot[], type: SnapshotPeriod) => {
+        const now = new Date();
+        const currentWeeklyKey = format(now, "RRRR-'W'II", { timeZone: TIMEZONE });
+        const currentMonthlyKey = format(now, "yyyy-MM", { timeZone: TIMEZONE });
+        const currentYearlyKey = format(now, "yyyy", { timeZone: TIMEZONE });
+
+        const processPeriod = (snaps: LeaderboardSnapshot[], type: SnapshotPeriod, currentActiveKey: string) => {
             for (let i = 0; i < snaps.length - 1; i++) {
                 const start = snaps[i];
                 const end = snaps[i + 1];
+
+                // Skip if 'end' snapshot matches currently active period (win not finalized)
+                if (end.periodKey === currentActiveKey) {
+                    continue;
+                }
 
                 // Check continuity (No gaps allowed for a valid Win period)
                 // e.g. W01 -> W02 is valid. W01 -> W03 is not.
@@ -113,9 +123,9 @@ export const calculateHistoricalWins = async (): Promise<Map<string, UserWins>> 
             }
         };
 
-        processPeriod(grouped.weekly, 'weekly');
-        processPeriod(grouped.monthly, 'monthly');
-        processPeriod(grouped.yearly, 'yearly');
+        processPeriod(grouped.weekly, 'weekly', currentWeeklyKey);
+        processPeriod(grouped.monthly, 'monthly', currentMonthlyKey);
+        processPeriod(grouped.yearly, 'yearly', currentYearlyKey);
 
     } catch (e) {
         console.error("Error calculating wins", e);
